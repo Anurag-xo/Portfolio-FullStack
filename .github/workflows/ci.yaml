@@ -15,7 +15,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: "20.x" # Use the Node.js version specified in your project (v20.x or higher)
+        node-version: "18" # Use the Node.js version specified in your project (v20.x or higher)
 
     steps:
       - name: Checkout code
