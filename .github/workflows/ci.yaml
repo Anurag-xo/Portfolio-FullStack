@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  install-lint-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: "20.x" # Use the Node.js version specified in your project (v20.x or higher)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm" # Use 'yarn' or 'pnpm' if applicable
+
+      - name: Install dependencies
+        run: npm ci # Use 'yarn install --frozen-lockfile' or 'pnpm install --frozen-lockfile' if applicable
+
+      - name: Run Linter
+        run: npm run lint # Ensure this script exists in package.json
+
+      - name: Build Application
+        run: npm run build
+    # - name: Run Unit Tests
+    #   run: npm run test
+    # Add your unit test command here if you have them
+    # Example: npm run test
