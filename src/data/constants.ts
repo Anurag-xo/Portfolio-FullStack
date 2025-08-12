@@ -23,6 +23,7 @@ export enum SkillNames {
   AWS = "aws",
   VIM = "vim",
   VERCEL = "vercel",
+  PYTHON = "python",
 }
 export type Skill = {
   id: number;
@@ -32,6 +33,7 @@ export type Skill = {
   color: string;
   icon: string;
 };
+
 export const SKILLS: Record<SkillNames, Skill> = {
   [SkillNames.JS]: {
     id: 1,
@@ -40,6 +42,15 @@ export const SKILLS: Record<SkillNames, Skill> = {
     shortDescription: "yeeting code into the DOM since '95, no cap! 💯🚀",
     color: "#f0db4f",
     icon: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/javascript/javascript-original.svg",
+  },
+  [SkillNames.PYTHON]: {
+    id: 25, // Replace 25 with the next unused ID number
+    name: "python",
+    label: "Python",
+    shortDescription:
+      "A powerful, versatile programming language known for its simplicity and readability. Widely used in web development, data science, AI, and more. 🐍", // Example description
+    color: "#3776ab", // Python's official color
+    icon: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg", // Example icon URL
   },
   [SkillNames.TS]: {
     id: 2,

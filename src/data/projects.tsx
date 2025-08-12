@@ -212,6 +212,12 @@ const PROJECT_SKILLS = {
     fg: "white",
     icon: "", // No direct Clerk icon
   },
+  python: {
+    title: "Python",
+    bg: "black",
+    fg: "white",
+    icon: <SiPython />,
+  },
 };
 export type Project = {
   id: string;
