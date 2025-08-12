@@ -20,17 +20,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "18"
-          cache: "npm" # Use 'yarn' or 'pnpm' if applicable
+          cache: "npm"
 
       - name: Install dependencies
-        run: npm ci # Use 'yarn install --frozen-lockfile' or 'pnpm install --frozen-lockfile' if applicable
+        run: npm ci
 
       - name: Run Linter
-        run: npm run lint # Ensure this script exists in package.json
+        run: npm run lint
 
       - name: Build Application
         run: npm run build
     # - name: Run Unit Tests
     #   run: npm run test
     # Add your unit test command here if you have them
-    # Example: npm run test
+    # TODO: i have to configure unit tests and healthcheck (xo).
