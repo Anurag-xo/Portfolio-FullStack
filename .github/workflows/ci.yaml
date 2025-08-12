@@ -2,29 +2,24 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
     paths-ignore:
       - "README.md"
       - "docs/**"
-  pull_request:
-    branches: ["main"]
 
 jobs:
-  install-lint-test:
+  build:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: "18" # Use the Node.js version specified in your project (v20.x or higher)
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Use Node.js ${{ matrix.node-version }}
+      - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: "18"
           cache: "npm" # Use 'yarn' or 'pnpm' if applicable
 
       - name: Install dependencies
