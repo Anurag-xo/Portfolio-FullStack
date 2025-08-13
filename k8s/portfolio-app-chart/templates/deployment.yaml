@@ -46,6 +46,8 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            # - name: HOST
+              # value: "0.0.0.0"
             # Inject RESEND_API_KEY from the Secret (created manually or by CI)
             - name: RESEND_API_KEY
               valueFrom:
