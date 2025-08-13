@@ -1,0 +1,16 @@
+# k8s/portfolio-app-chart/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "portfolio-app-chart.fullname" . }}
+  labels:
+    {{- include "portfolio-app-chart.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "portfolio-app-chart.selectorLabels" . | nindent 4 }}
