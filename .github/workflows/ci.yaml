@@ -9,8 +9,10 @@ on:
       - "docs/**"
 
 env:
-  # Define the image name for ECR (use your new Portfolio ECR repo)
-  IMAGE_NAME: ${{ secrets.ECR_REPOSITORY_PORTFOLIO }} # Make sure this secret exists
+  # Define the image name for ECR (use your Portfolio ECR repo secret)
+  ECR_IMAGE_NAME: ${{ secrets.ECR_REPOSITORY_PORTFOLIO }} # e.g., 123456789012.dkr.ecr.region.amazonaws.com/portfolio-web
+  # Define the image name for Docker Hub (if also pushing there)
+  DOCKERHUB_IMAGE_NAME: anuragox/portfolio-app
 
 jobs:
   build:
@@ -39,6 +41,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # --- AWS ECR Setup ---
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -50,33 +53,43 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
+      # --- Docker Hub Setup (Optional, remove if not needed) ---
+      # Make sure DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets are set in GitHub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Extract metadata (tags, labels) for Docker
+      # --- Extract metadata (tags, labels) for Docker ---
+      # Tags images for both ECR and Docker Hub
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }} # Use ECR image name
-          # Tag with 'latest' and Git SHA
+          # List both ECR and Docker Hub image names
+          images: |
+            ${{ env.ECR_IMAGE_NAME }}
+            ${{ env.DOCKERHUB_IMAGE_NAME }}
+          # Tagging strategy
           tags: |
+            # Tag as 'latest' ONLY on the default branch (e.g., main)
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=,format=long
+            # Tag as 'deploy-latest' on EVERY push to the 'production/deploy' branch
+            type=raw,value=deploy-latest,enable=true
+            # Tag with the full Git commit SHA prefixed by 'deploy-' for 'production/deploy' branch
+            type=sha,prefix=deploy-,format=long
 
-      # Build and push Docker image
+      # --- Build and push Docker image ---
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true # Enable pushing
-          tags: ${{ steps.meta.outputs.tags }}
+          push: true # Enable pushing to all specified registries
+          tags: ${{ steps.meta.outputs.tags }} # Use the tags generated above
           labels: ${{ steps.meta.outputs.labels }}
-          target: runner # Target the final stage that contains the production-ready app
-          # Pass build arguments if needed (e.g., NEXT_PUBLIC_* vars set in GitHub Secrets)
+          target: runner # Target the 'runner' stage for the production-ready app
+          # Pass build arguments if needed (e.g., NEXT_PUBLIC_* vars)
           # build-args: |
           #   NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
 
@@ -84,7 +97,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build # This job runs after the 'build' job succeeds
     steps:
-      - name: Checkout code (needed for the docker-compose.yml file potentially)
+      # Checkout code (good practice, even if not directly used here)
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install SSH key
@@ -102,44 +116,40 @@ jobs:
             set -e # Exit on any error within the SSH session
 
             echo 'Authenticating Docker to ECR...'
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_REPOSITORY_PORTFOLIO }}
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_IMAGE_NAME }}
 
-            echo 'Pulling latest Portfolio Docker image (using latest tag)...'
-            docker pull ${{ secrets.ECR_REPOSITORY_PORTFOLIO }}:latest
+            # --- FIXED: Pull the specific 'deploy-latest' tag built for this branch ---
+            echo 'Pulling Portfolio Docker image tagged deploy-latest (specific to this branch)...'
+            docker pull ${{ env.ECR_IMAGE_NAME }}:deploy-latest
 
             echo 'Navigating to Portfolio directory...'
             cd /home/ec2-user/Portfolio-FullStack || { echo 'Failed to change to Portfolio directory'; exit 1; }
 
-            # --- Deployment using docker-compose.yml from the repo ---
-            # Ensure the docker-compose.yml file exists in the repo at the correct path
-            # relative to the workflow. Adjust path if needed.
-            # This assumes you have committed the docker-compose.portfolio.yml or similar
-            # to your repo, or you are using the main docker-compose.yml for this.
-            # Let's assume you create a specific one: docker-compose.portfolio.yml
-            # and copy it to the server or create it dynamically.
-            # For this example, let's create it dynamically on the server based on the latest image.
-
-            echo 'Creating/updating docker-compose configuration for Portfolio...'
+            # --- Deployment using docker-compose.portfolio.yml ---
+            # Create the docker-compose file dynamically, using the correct image tag
+            echo 'Creating/updating docker-compose configuration for Portfolio (using deploy-latest tag)...'
             cat > docker-compose.portfolio.yml <<EOF
             version: '3.8'
             services:
               portfolio-web:
-                image: ${{ secrets.ECR_REPOSITORY_PORTFOLIO }}:latest # Use the latest image pulled
+                # --- FIXED: Use the specific 'deploy-latest' tag ---
+                image: ${{ env.ECR_IMAGE_NAME }}:deploy-latest
                 ports:
                   - "3000:3000" # Expose on host port 3000
                 environment:
                   NODE_ENV: production
                   NEXT_TELEMETRY_DISABLED: 1
-                  # Add other necessary environment variables here
-                  # Example:
-                  # RESEND_API_KEY: \${RESEND_API_KEY} # Pass via secrets if needed on EC2
+                  # Add other necessary environment variables here if needed at runtime
+                  # Example (if your app reads RESEND_API_KEY at runtime):
+                  # RESEND_API_KEY: your_actual_key # Or manage via secrets/config on EC2
                 restart: unless-stopped
-                healthcheck:
-                  test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/healthz || exit 1"] # Adjust health check path if needed
-                  interval: 30s
-                  timeout: 10s
-                  retries: 3
-                  start_period: 5s
+                # --- Healthcheck: Adjust path or remove if /healthz doesn't exist ---
+                # healthcheck:
+                #   test: [\"CMD-SHELL\", \"wget --no-verbose --tries=1 --spider http://localhost:3000/healthz || exit 1\"]
+                #   interval: 30s
+                #   timeout: 10s
+                #   retries: 3
+                #   start_period: 5s
             EOF
 
             echo 'Stopping existing Portfolio containers (if any)...'
@@ -151,7 +161,7 @@ jobs:
             echo '--- Portfolio Deployment to EC2 Completed ---'
           "
 
-          # Check the exit status of the SSH command
+          # Check the exit status of the SSH command on the runner
           if [ $? -eq 0 ]; then
             echo "Portfolio Deployment successful!"
             echo "Access your Portfolio at http://${{ secrets.EC2_PUBLIC_IP }}:3000"
