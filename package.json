@@ -1,6 +1,7 @@
 {
   "name": "portfolio",
   "version": "0.1.0",
+  "description": "My personal portfolio website, built with Next.js and TypeScript.",
   "private": true,
   "scripts": {
     "dev": "next dev",
