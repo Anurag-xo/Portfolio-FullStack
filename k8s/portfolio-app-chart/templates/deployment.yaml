@@ -1,4 +1,3 @@
-# k8s/portfolio-app-chart/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,6 +27,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "portfolio-app-chart.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -38,30 +38,30 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.targetPort }} # Use targetPort from values
+              containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
-            # Set standard environment variables from values
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-            # - name: HOST
-              # value: "0.0.0.0"
-            # Inject RESEND_API_KEY from the Secret (created manually or by CI)
             - name: RESEND_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: portfolio-app-secrets # Name of the secret you create manually
+                  name: portfolio-app-secrets
                   key: RESEND_API_KEY
-          # livenessProbe:
-          #   httpGet:
-          #     path: /
-          #     port: http
-          # readinessProbe:
-          #   httpGet:
-          #     path: /
-          #     port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.volumeMounts }}
