@@ -9,14 +9,14 @@ on:
       - "docs/**"
 
 env:
-  # Define the image name for ECR (use your Portfolio ECR repo secret)
-  ECR_IMAGE_NAME: ${{ secrets.ECR_REPOSITORY_PORTFOLIO }} # e.g., 123456789012.dkr.ecr.region.amazonaws.com/portfolio-web
-  # Define the image name for Docker Hub (if also pushing there)
+  ECR_IMAGE_NAME: ${{ secrets.ECR_REPOSITORY_PORTFOLIO }}
   DOCKERHUB_IMAGE_NAME: anuragox/portfolio-app
+  DEPLOY_DIR: /home/ec2-user/Portfolio-FullStack
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -33,6 +33,10 @@ jobs:
 
       - name: Run Linter
         run: npm run lint
+
+      - name: Run Tests (if available)
+        run: npm test --if-present
+        continue-on-error: false
 
       - name: Build Application
         run: npm run build
@@ -51,103 +55,247 @@ jobs:
 
       - name: Log in to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
-      # --- Docker Hub Setup (Optional, remove if not needed) ---
-      # Make sure DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets are set in GitHub
+      # --- Docker Hub Setup (Optional) ---
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # --- Extract metadata (tags, labels) for Docker ---
-      # Tags images for both ECR and Docker Hub
+      # --- Extract metadata for Docker ---
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          # List both ECR and Docker Hub image names
           images: |
             ${{ env.ECR_IMAGE_NAME }}
             ${{ env.DOCKERHUB_IMAGE_NAME }}
-          # Tagging strategy
           tags: |
-            # Tag as 'latest' ONLY on the default branch (e.g., main)
             type=raw,value=latest,enable={{is_default_branch}}
-            # Tag as 'deploy-latest' on EVERY push to the 'production/deploy' branch
             type=raw,value=deploy-latest,enable=true
-            # Tag with the full Git commit SHA prefixed by 'deploy-' for 'production/deploy' branch
-            type=sha,prefix=deploy-,format=long
+            type=sha,prefix=deploy-,format=short
+            type=ref,event=branch
 
       # --- Build and push Docker image ---
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true # Enable pushing to all specified registries
-          tags: ${{ steps.meta.outputs.tags }} # Use the tags generated above
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          target: runner # Target the 'runner' stage for the production-ready app
+          target: runner
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --- Output image digest for deployment verification ---
+      - name: Output image digest
+        run: echo "Image digest ${{ steps.build.outputs.digest }}"
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build # This job runs after the 'build' job succeeds
+    needs: build
+    timeout-minutes: 15
+    environment: production # Add environment protection if needed
+
     steps:
-      # Checkout code (good practice, even if not directly used here)
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # --- Secure SSH Setup ---
+      - name: Add EC2 to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.EC2_PUBLIC_IP }} >> ~/.ssh/known_hosts
 
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          known_hosts: " " # Disable strict host key checking for simplicity (less secure)
+          known_hosts: unnecessary
 
+      # --- Health Check Before Deployment ---
+      - name: Check EC2 connectivity
+        run: |
+          if ! ssh -o ConnectTimeout=10 ec2-user@${{ secrets.EC2_PUBLIC_IP }} "echo 'Connection successful'"; then
+            echo "Failed to connect to EC2 instance"
+            exit 1
+          fi
+
+      # --- Deploy to EC2 ---
       - name: Deploy Portfolio to EC2
         run: |
           echo '--- Starting Portfolio Deployment on EC2 ---'
 
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_PUBLIC_IP }} "
-            set -e # Exit on any error within the SSH session
+          # Create deployment script
+          cat > deploy_script.sh <<'DEPLOY_SCRIPT'
+          #!/bin/bash
+          set -euo pipefail # Exit on error, undefined vars, pipe failures
 
-            echo 'Authenticating Docker to ECR...'
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_IMAGE_NAME }}
+          # Configuration
+          ECR_IMAGE="${{ env.ECR_IMAGE_NAME }}"
+          AWS_REGION="${{ secrets.AWS_REGION }}"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          SERVICE_NAME="portfolio-web"
 
-            # --- FIXED: Pull the specific 'deploy-latest' tag built for this branch ---
-            echo 'Pulling Portfolio Docker image tagged deploy-latest (specific to this branch)...'
-            docker pull ${{ env.ECR_IMAGE_NAME }}:deploy-latest
+          echo "=== Starting deployment process ==="
 
-            echo 'Navigating to Portfolio directory...'
-            cd /home/ec2-user/Portfolio-FullStack || { echo 'Failed to change to Portfolio directory'; exit 1; }
+          # Function for logging
+          log() {
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+          }
 
-            echo 'Creating/updating docker-compose configuration for Portfolio (using deploy-latest tag)...'
-            cat > docker-compose.portfolio.yml <<EOF
-            version: '3.8'
-            services:
-              portfolio-web:
-                image: ${{ env.ECR_IMAGE_NAME }}:deploy-latest
-                ports:
-                  - "3000:3000" 
-                environment:
-                  NODE_ENV: production
-                  NEXT_TELEMETRY_DISABLED: 1
-                restart: unless-stopped
-            EOF
-
-            echo 'Stopping existing Portfolio containers (if any)...'
-            docker-compose -f docker-compose.portfolio.yml down
-
-            echo 'Starting Portfolio containers...'
-            docker-compose -f docker-compose.portfolio.yml up -d
-
-            echo '--- Portfolio Deployment to EC2 Completed ---'
-          "
-
-          if [ $? -eq 0 ]; then
-            echo "Portfolio Deployment successful!"
-            echo "Access your Portfolio at http://${{ secrets.EC2_PUBLIC_IP }}:3000"
-          else
-            echo "Portfolio Deployment failed!"
+          # Function for error handling
+          handle_error() {
+            log "ERROR: $1"
             exit 1
+          }
+
+          # Authenticate Docker to ECR
+          log "Authenticating Docker to ECR..."
+          if ! aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_IMAGE"; then
+            handle_error "Failed to authenticate with ECR"
+          fi
+
+          # Pull the latest image
+          log "Pulling Portfolio Docker image (deploy-latest tag)..."
+          if ! docker pull "${ECR_IMAGE}:deploy-latest"; then
+            handle_error "Failed to pull Docker image"
+          fi
+
+          # Ensure deployment directory exists
+          log "Ensuring deployment directory exists..."
+          mkdir -p "$DEPLOY_DIR"
+          cd "$DEPLOY_DIR" || handle_error "Failed to change to deployment directory"
+
+          # Create backup of current compose file if it exists
+          if [ -f docker-compose.portfolio.yml ]; then
+            log "Backing up existing docker-compose file..."
+            cp docker-compose.portfolio.yml "docker-compose.portfolio.yml.backup.$(date +%s)"
+          fi
+
+          # Create new docker-compose configuration
+          log "Creating docker-compose configuration..."
+          cat > docker-compose.portfolio.yml <<EOF
+          version: '3.8'
+          services:
+            ${SERVICE_NAME}:
+              image: ${ECR_IMAGE}:deploy-latest
+              ports:
+                - "3000:3000"
+              environment:
+                - NODE_ENV=production
+                - NEXT_TELEMETRY_DISABLED=1
+              restart: unless-stopped
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:3000/api/health", "||", "exit", "1"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
+              logging:
+                driver: "json-file"
+                options:
+                  max-size: "10m"
+                  max-file: "3"
+
+          networks:
+            default:
+              name: portfolio-network
+          EOF
+
+          # Graceful shutdown of existing containers
+          log "Stopping existing containers gracefully..."
+          if docker-compose -f docker-compose.portfolio.yml ps -q | grep -q .; then
+            docker-compose -f docker-compose.portfolio.yml down --timeout 30
+          fi
+
+          # Clean up old images (keep last 3)
+          log "Cleaning up old images..."
+          docker images "${ECR_IMAGE}" --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedAt}}" | tail -n +2 | sort -k2 -r | tail -n +4 | awk '{print $1}' | xargs -r docker rmi || true
+
+          # Start new containers
+          log "Starting new containers..."
+          if ! docker-compose -f docker-compose.portfolio.yml up -d; then
+            handle_error "Failed to start containers"
+          fi
+
+          # Wait for service to be healthy
+          log "Waiting for service to be healthy..."
+          timeout=300 # 5 minutes
+          counter=0
+          while [ $counter -lt $timeout ]; do
+            if docker-compose -f docker-compose.portfolio.yml ps | grep -q "healthy\|Up"; then
+              log "Service is running successfully!"
+              break
+            fi
+            if [ $counter -eq $((timeout-1)) ]; then
+              handle_error "Service failed to start within timeout period"
+            fi
+            sleep 5
+            counter=$((counter+5))
+          done
+
+          # Display running containers
+          log "Currently running containers:"
+          docker-compose -f docker-compose.portfolio.yml ps
+
+          log "=== Deployment completed successfully ==="
+          DEPLOY_SCRIPT
+
+          # Execute deployment script on EC2
+          if ssh ec2-user@${{ secrets.EC2_PUBLIC_IP }} 'bash -s' < deploy_script.sh; then
+            echo "✅ Portfolio deployment successful!"
+            echo "🌐 Access your portfolio at: http://${{ secrets.EC2_PUBLIC_IP }}:3000"
+          else
+            echo "❌ Portfolio deployment failed!"
+            echo "Attempting rollback..."
+            ssh ec2-user@${{ secrets.EC2_PUBLIC_IP }} "
+              cd ${{ env.DEPLOY_DIR }} || exit 1
+              if [ -f docker-compose.portfolio.yml.backup.* ]; then
+                latest_backup=\$(ls -t docker-compose.portfolio.yml.backup.* | head -n1)
+                cp \"\$latest_backup\" docker-compose.portfolio.yml
+                docker-compose -f docker-compose.portfolio.yml up -d
+                echo 'Rollback completed'
+              fi
+            " || echo "Rollback failed - manual intervention required"
+            exit 1
+          fi
+
+      # --- Post-deployment verification ---
+      - name: Verify deployment
+        run: |
+          echo "Performing post-deployment verification..."
+          sleep 30 # Give service time to fully start
+
+          # Basic connectivity check
+          if curl -f --max-time 30 http://${{ secrets.EC2_PUBLIC_IP }}:3000 > /dev/null 2>&1; then
+            echo "✅ Service is responding to HTTP requests"
+          else
+            echo "⚠️ Service may not be fully ready yet"
+          fi
+
+      # --- Cleanup ---
+      - name: Cleanup deployment artifacts
+        if: always()
+        run: |
+          rm -f deploy_script.sh
+          echo "Cleanup completed"
+
+  # --- Notification job (optional) ---
+  notify:
+    runs-on: ubuntu-latest
+    needs: [build, deploy]
+    if: always()
+    steps:
+      - name: Notify deployment status
+        run: |
+          if [ "${{ needs.deploy.result }}" == "success" ]; then
+            echo "🎉 Deployment successful!"
+            # Add your notification logic here (Slack, email, etc.)
+          else
+            echo "💥 Deployment failed!"
+            # Add your error notification logic here
           fi
