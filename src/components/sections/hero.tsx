@@ -76,14 +76,14 @@ const HeroSection = () => {
                       "cursor-default font-display sm:text-xl md:text-xl whitespace-nowrap bg-clip-text ",
                     )}
                   >
-                    A Full Stack Web Developer
+                    Full Stack Developer | DevOps Engineer
                   </p>
                 </BlurIn>
               </div>
               <div className="mt-8 md:ml-2 flex flex-col gap-3">
                 <Link
                   href={
-                    "https://drive.google.com/file/d/1EfaqUgWBMX3fHxJvhZ_HiI_BLOgQIRN_/view?usp=sharing"
+                    "https://drive.google.com/file/d/1Z9VuAaS4zjGlj1ly6bAZPfxLmIbsn9CJ/view?usp=sharing"
                   }
                   target="_blank"
                   className="flex-1"

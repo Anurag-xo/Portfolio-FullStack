@@ -89,9 +89,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }} # Use the tags generated above
           labels: ${{ steps.meta.outputs.labels }}
           target: runner # Target the 'runner' stage for the production-ready app
-          # Pass build arguments if needed (e.g., NEXT_PUBLIC_* vars)
-          # build-args: |
-          #   NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
 
   deploy:
     runs-on: ubuntu-latest
@@ -111,7 +108,6 @@ jobs:
         run: |
           echo '--- Starting Portfolio Deployment on EC2 ---'
 
-          # SSH into the EC2 instance and execute deployment commands
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_PUBLIC_IP }} "
             set -e # Exit on any error within the SSH session
 
@@ -125,31 +121,18 @@ jobs:
             echo 'Navigating to Portfolio directory...'
             cd /home/ec2-user/Portfolio-FullStack || { echo 'Failed to change to Portfolio directory'; exit 1; }
 
-            # --- Deployment using docker-compose.portfolio.yml ---
-            # Create the docker-compose file dynamically, using the correct image tag
             echo 'Creating/updating docker-compose configuration for Portfolio (using deploy-latest tag)...'
             cat > docker-compose.portfolio.yml <<EOF
             version: '3.8'
             services:
               portfolio-web:
-                # --- FIXED: Use the specific 'deploy-latest' tag ---
                 image: ${{ env.ECR_IMAGE_NAME }}:deploy-latest
                 ports:
-                  - "3000:3000" # Expose on host port 3000
+                  - "3000:3000" 
                 environment:
                   NODE_ENV: production
                   NEXT_TELEMETRY_DISABLED: 1
-                  # Add other necessary environment variables here if needed at runtime
-                  # Example (if your app reads RESEND_API_KEY at runtime):
-                  # RESEND_API_KEY: your_actual_key # Or manage via secrets/config on EC2
                 restart: unless-stopped
-                # --- Healthcheck: Adjust path or remove if /healthz doesn't exist ---
-                # healthcheck:
-                #   test: [\"CMD-SHELL\", \"wget --no-verbose --tries=1 --spider http://localhost:3000/healthz || exit 1\"]
-                #   interval: 30s
-                #   timeout: 10s
-                #   retries: 3
-                #   start_period: 5s
             EOF
 
             echo 'Stopping existing Portfolio containers (if any)...'
@@ -161,7 +144,6 @@ jobs:
             echo '--- Portfolio Deployment to EC2 Completed ---'
           "
 
-          # Check the exit status of the SSH command on the runner
           if [ $? -eq 0 ]; then
             echo "Portfolio Deployment successful!"
             echo "Access your Portfolio at http://${{ secrets.EC2_PUBLIC_IP }}:3000"

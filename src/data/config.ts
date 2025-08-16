@@ -3,7 +3,7 @@ const config = {
   description: {
     long: "Explore the portfolio of Anurag, a DevOps Engineer and creative technologist specializing in interactive web experiences, 3D animations, and innovative projects. Discover my latest work, including Full-Stack Blog Website, Shell Craft, AWS-S3 Manager, and more. Let's build something amazing together!",
     short:
-      "Discover the portfolio of Anurag, a full-stack developer creating interactive web experiences and innovative projects.",
+      "Discover the portfolio of Anurag, a full-stack developer & DevOps Engineer creating interactive web experiences and innovative projects.",
   },
   keywords: [
     "Anurag",
@@ -25,7 +25,7 @@ const config = {
   ],
   author: "Anurag Kumar",
   email: "anuragxo.dev@gmail.com",
-  site: "https://anuragkumar.site",
+  site: "https://anuragsite.duckdns.org",
 
   get ogImg() {
     return this.site + "/assets/seo/og-image.png";
