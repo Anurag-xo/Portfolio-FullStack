@@ -3,6 +3,7 @@ name: portfolio-app-chart
 description: A Helm chart for Kubernetes
 
 # A chart can be either an 'application' or a 'library' chart.
+# A chart
 #
 # Application charts are a collection of templates that can be packaged into versioned archives
 # to be deployed.
